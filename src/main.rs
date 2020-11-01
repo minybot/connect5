@@ -3,13 +3,24 @@ use rand::thread_rng;
 
 use std::cmp;
 
+use std::time::{Instant};
+
 // types
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Color {
-    Black,
-    White,
-    Empty,
+    Black = 0,
+    White = 1,
+    Empty = 2,
+    Border = 3,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Pat {
+    Lelfright = 0,
+    Updown = 1,
+    Leftuprightdown = 2,
+    Rightupleftdown = 3,
 }
 
 type Square = i32; 
@@ -19,61 +30,46 @@ type Piece = Color;
 
 // constants
 
-const FILE_SIZE: i32 = 19;
-const RANK_SIZE: i32 = 19;
-const SQUARE_SIZE: i32 = (FILE_SIZE + 4) * (FILE_SIZE + 4 * 2 ) + 4;
+const FILE_SIZE: i32 = 15;
+const RANK_SIZE: i32 = 15;
+const SQUARE_SIZE: i32 = (FILE_SIZE + 1) * (FILE_SIZE + 4) + 16 + 4;
 
 const EVAL_INF: i32 = FILE_SIZE * RANK_SIZE * 100;
 const MOVE_NONE: Move = -1;
 const SCORE_NONE: i32 = -EVAL_INF - 1;
 
-const ENDCHECK: [[i32; 4]; 20] = [ [-4, -3, -2, -1],
-                                   [-3, -2, -1,  1],
-                                   [-2, -1,  1,  2],
-                                   [-1,  1,  2,  3],
-                                   [ 1,  2,  3,  4],
+const PATTERN: [[i32; 5]; 4] = [ [1, 2, 3, 4, 5],
+                                 [1 * (FILE_SIZE + 1), 2 * (FILE_SIZE + 1), 3 * (FILE_SIZE + 1), 4 * (FILE_SIZE + 1), 5 * (FILE_SIZE + 1)],
+                                 [1 * (FILE_SIZE + 2), 2 * (FILE_SIZE + 2), 3 * (FILE_SIZE + 2), 4 * (FILE_SIZE + 2), 5 * (FILE_SIZE + 2)],
+                                 [1 * (FILE_SIZE + 0), 2 * (FILE_SIZE + 0), 3 * (FILE_SIZE + 0), 4 * (FILE_SIZE + 0), 5 * (FILE_SIZE + 0)]];
 
-                                   [1 * (-FILE_SIZE - 4), 2 * (-FILE_SIZE - 4), 3 * (-FILE_SIZE - 4), 4 * (-FILE_SIZE - 4)],
-                                   [1 * (-FILE_SIZE - 4), 2 * (-FILE_SIZE - 4), 3 * (-FILE_SIZE - 4), 1 * ( FILE_SIZE + 4)],
-                                   [1 * (-FILE_SIZE - 4), 2 * (-FILE_SIZE - 4), 1 * ( FILE_SIZE + 4), 2 * ( FILE_SIZE + 4)],
-                                   [1 * (-FILE_SIZE - 4), 1 * ( FILE_SIZE + 4), 2 * ( FILE_SIZE + 4), 3 * ( FILE_SIZE + 4)],
-                                   [1 * ( FILE_SIZE + 4), 2 * ( FILE_SIZE + 4), 3 * ( FILE_SIZE + 4), 4 * ( FILE_SIZE + 4)],
+// variables
 
-                                   [1 * (-FILE_SIZE - 5), 2 * (-FILE_SIZE - 5), 3 * (-FILE_SIZE - 5), 4 * (-FILE_SIZE - 5)],
-                                   [1 * (-FILE_SIZE - 5), 2 * (-FILE_SIZE - 5), 3 * (-FILE_SIZE - 5), 1 * ( FILE_SIZE + 5)],
-                                   [1 * (-FILE_SIZE - 5), 2 * (-FILE_SIZE - 5), 1 * ( FILE_SIZE + 5), 2 * ( FILE_SIZE + 5)],
-                                   [1 * (-FILE_SIZE - 5), 1 * ( FILE_SIZE + 5), 2 * ( FILE_SIZE + 5), 3 * ( FILE_SIZE + 5)],
-                                   [1 * ( FILE_SIZE + 5), 2 * ( FILE_SIZE + 5), 3 * ( FILE_SIZE + 5), 4 * ( FILE_SIZE + 5)],
-
-                                   [1 * (-FILE_SIZE - 3), 2 * (-FILE_SIZE - 3), 3 * (-FILE_SIZE - 3), 4 * (-FILE_SIZE - 3)],
-                                   [1 * (-FILE_SIZE - 3), 2 * (-FILE_SIZE - 3), 3 * (-FILE_SIZE - 3), 1 * ( FILE_SIZE + 3)],
-                                   [1 * (-FILE_SIZE - 3), 2 * (-FILE_SIZE - 3), 1 * ( FILE_SIZE + 3), 2 * ( FILE_SIZE + 3)],
-                                   [1 * (-FILE_SIZE - 3), 1 * ( FILE_SIZE + 3), 2 * ( FILE_SIZE + 3), 3 * ( FILE_SIZE + 3)],
-                                   [1 * ( FILE_SIZE + 3), 2 * ( FILE_SIZE + 3), 3 * ( FILE_SIZE + 3), 4 * ( FILE_SIZE + 3)] ];
-
-const PATTERNFILE4: [i32; 5] = [1, 2, 3, 4, 5];
-const PATTERNRANK4: [i32; 5] = [1 * (FILE_SIZE + 4), 2 * (FILE_SIZE + 4), 3 * (FILE_SIZE + 4), 4 * (FILE_SIZE + 4), 5 * (FILE_SIZE + 4)];
-const PATTERNDIAL4: [i32; 5] = [1 * (FILE_SIZE + 5), 2 * (FILE_SIZE + 5), 3 * (FILE_SIZE + 5), 4 * (FILE_SIZE + 5), 5 * (FILE_SIZE + 5)];
-const PATTERNDIAR4: [i32; 5] = [1 * (FILE_SIZE + 3), 2 * (FILE_SIZE + 3), 3 * (FILE_SIZE + 3), 4 * (FILE_SIZE + 3), 5 * (FILE_SIZE + 3)];
+static mut ENDGAME: bool = false;
 
 // structures
 
 pub struct Pos { // position
     state: [Color; SQUARE_SIZE as usize],
     p_turn: Side,
-    p_last: Move,
 }
 
 impl Pos {
 
     pub fn init(&mut self) { // starting position
         for i in 0..SQUARE_SIZE as usize {
-            self.state[i] = Color::Empty;
+            self.state[i] = Color::Border;
+        }
+
+        for rk in 0..RANK_SIZE {
+            for fl in 0..FILE_SIZE {
+                let sq: Square = square_make(fl, rk);
+                self.state[sq as usize] = Color::Empty;
+            }
         }
 
         self.p_turn = Color::Black;
-        self.p_last = square_make(0, 0);
-    }
+    } 
 
     pub fn do_move(&mut self, mv: Move) {
 
@@ -81,12 +77,11 @@ impl Pos {
         let def: Side = side_opp(atk);
 
         match self.p_turn {
-            Color::Black => self.state[mv as usize] = Color::Black,
-            Color::White => self.state[mv as usize] = Color::White,
+            Color::Black => { self.state[mv as usize] = Color::Black; },
+            Color::White => { self.state[mv as usize] = Color::White; },
             Color::Empty => {},
+            Color::Border => {},
         }
-
-        self.p_last = mv;
 
         self.p_turn = def; 
     }
@@ -94,8 +89,6 @@ impl Pos {
     fn turn(&self) -> Side {
         self.p_turn
     }
-
-
 
     pub fn can_play(&self, from: Square) -> bool {
 
@@ -114,7 +107,6 @@ impl Pos {
         }
         n
     }
-
 }
 
 pub struct List {  // legal move list
@@ -159,17 +151,9 @@ impl List {
 }
 
 // functions
-
+//
 fn square_make(fl: i32, rk: i32) -> Square {
-    (rk + 4) * (FILE_SIZE + 4) + (fl + 4)
-}
-
-fn square_file(sq: Square) -> i32 {
-    sq % (FILE_SIZE + 4) - 4
-}
-
-fn square_rank(sq: Square) -> i32 {
-    sq / (FILE_SIZE + 4) - 4
+    rk * (FILE_SIZE + 1) + fl
 }
 
 fn side_opp(sd: Side) -> Side {
@@ -178,46 +162,38 @@ fn side_opp(sd: Side) -> Side {
         Side::White => Side::Black,
         Side::Black => Side::White,
         Side::Empty => panic!(""),
+        Side::Border => panic!(""),
     }
 }
 
 fn pos_is_winner(pos : &Pos) -> bool {
 
-    let current_side = side_opp(pos.p_turn);
-
-    let mut found : bool = true;
-    
-    for x in 0..20 {
-        for y in 0..4 {
-
-            found = true;
-
-            let adj = pos.p_last + ENDCHECK[x][y];
-      
-            if pos.state[adj as usize] != current_side { found = false; break }
-        }
-        if found == true { break; } 
-    }
-
-    found
+   let current_side = side_opp(pos.p_turn);
+   check_pattern5(&pos, current_side)
 }
 
 fn pos_is_draw(pos : &Pos) -> bool {
 
+    let mut found : bool = true;
+        
     for rk in 0..RANK_SIZE {
         for fl in 0..FILE_SIZE {
 
             let sq: Square = square_make(fl, rk);
-
-            if pos.can_play(sq) {
-                return false
+            if  pos.can_play(sq) {
+                found = false;
+                break;
             }
+
+        if found == false { break;}
         }
     }
 
-    if pos_is_winner(pos) { return false }
+    let mut out: bool = false;
 
-    true
+    if found == true && !pos_is_winner(pos) { out = true; }
+
+    out
 }
 
 fn pos_is_end(pos : &Pos) -> bool {
@@ -227,8 +203,6 @@ fn pos_is_end(pos : &Pos) -> bool {
     } else {
         false
     }
-
-
 }
 
 fn pos_disp(pos: &Pos) {
@@ -242,6 +216,7 @@ fn pos_disp(pos: &Pos) {
                 Color::Black => print!("# "),
                 Color::White => print!("O "),
                 Color::Empty => print!("- "),
+                Color::Border => print!("| "),
             }
         }
 
@@ -265,7 +240,6 @@ fn gen_moves(list : &mut List, pos: &Pos) {
             if pos.can_play(sq) { list.add(sq); }
         }
     }
-
 }
 
 fn search(pos : &Pos, depth: i32, endgame: i32) -> Move {
@@ -275,20 +249,23 @@ fn search(pos : &Pos, depth: i32, endgame: i32) -> Move {
     let empties: i32 = pos.count(Color::Empty);
     if empties <= endgame || new_depth > empties { new_depth = empties; }
 
-    search_real(pos, -EVAL_INF, EVAL_INF, new_depth, 0)
+    if new_depth == empties { unsafe { ENDGAME = true; } }
 
+    search_real(pos, -EVAL_INF, EVAL_INF, new_depth, 0)
 }
 
 fn search_real(pos: &Pos, alpha: i32, beta: i32, depth: i32, ply: i32) -> i32 {
-
 
     assert!(-EVAL_INF <= alpha && alpha < beta && beta <= EVAL_INF);
     // leaf?
 
     if pos_is_winner(&pos) { return -EVAL_INF + ply }
+
     if pos_is_draw(&pos) { return 0 }
 
-    if depth == 0 { return eval(&pos) }
+    if depth == 0 {
+         return eval(&pos)
+    }
 
     let p_move_new : [Move; (FILE_SIZE * RANK_SIZE) as usize] = [0; (FILE_SIZE * RANK_SIZE) as usize];
 
@@ -315,7 +292,6 @@ fn search_real(pos: &Pos, alpha: i32, beta: i32, depth: i32, ply: i32) -> i32 {
         let mut new_pos = Pos {
             state: pos.state,
             p_turn: pos.p_turn,
-            p_last: pos.p_last,
         };
 
         new_pos.do_move(mv);
@@ -323,6 +299,7 @@ fn search_real(pos: &Pos, alpha: i32, beta: i32, depth: i32, ply: i32) -> i32 {
         let sc: i32 = -search_real(&new_pos, -beta, -cmp::max(alpha, bs), depth - 1, ply + 1);
 
         if sc > bs { bm = mv; bs = sc; }
+
         }
     }
 
@@ -337,1311 +314,192 @@ fn eval(pos: &Pos) -> i32 {
     let atk: Side = pos.turn();
     let def: Side = side_opp(atk);
 
-    let check_live4: Side = def; 
-    let check_live4_opp: Side = atk; 
-
-    // opp live 4
-
-    if check_patternfile4_once(&pos, check_live4) || 
-       check_patternrank4_once(&pos, check_live4) ||
-       check_patterndial4_once(&pos, check_live4) ||
-       check_patterndiar4_once(&pos, check_live4) { return -4096 }
-
-    // self live 4
+    if check_patternlive4(&pos, def) { return -4096 }
     
-    if check_patternfile4_once(&pos, check_live4_opp) || 
-       check_patternrank4_once(&pos, check_live4_opp) ||
-       check_patterndial4_once(&pos, check_live4_opp) ||
-       check_patterndiar4_once(&pos, check_live4_opp) { return 2560 }
+    if check_patternlive4(&pos, def) { return 2560 }
 
-    // self dead 4
+    if check_patterndead4(&pos, atk) > 0 { return 2560 }
 
-    if check_patternfile4_dead(&pos, check_live4_opp) || 
-       check_patternrank4_dead(&pos, check_live4_opp) ||
-       check_patterndial4_dead(&pos, check_live4_opp) ||
-       check_patterndiar4_dead(&pos, check_live4_opp) { return 2560 }
+    let n_c4: i32 = check_patterndead4(&pos, def);
+    let n_c3: i32 = check_patternlive3(&pos, def);
 
-    let c4f: i32  = check_patternfile4_dead_n(&pos, check_live4);
-    let c4r: i32  = check_patternrank4_dead_n(&pos, check_live4);
-    let c4dl: i32 = check_patterndial4_dead_n(&pos, check_live4);
-    let c4dr: i32 = check_patterndiar4_dead_n(&pos, check_live4);
-
-    let c3f: bool  = check_patternfile3_live(&pos, check_live4);
-    let c3r: bool  = check_patternrank3_live(&pos, check_live4);
-    let c3dl: bool = check_patterndial3_live(&pos, check_live4);
-    let c3dr: bool = check_patterndiar3_live(&pos, check_live4);
-
-    let n_c4: i32 = c4f + c4r + c4dl + c4dr;
-
+    // 4,4
     if n_c4 > 1 { return -2048 }
+    // 4,3
+    if n_c4 == 1 && n_c3 > 0 { return -3048 }
 
-    // opp 4,3
+    // 3,3
+    if check_patternlive3(&pos, atk) > 1 { return 2560 }
 
-    if n_c4 == 1 && ( c3f || c3r || c3dl || c3dr ) { return -3048 }
-    
-    // self live 3
-
-    if check_patternfile3_live(&pos, check_live4_opp)
-       || check_patternrank3_live(&pos, check_live4_opp)
-       || check_patterndial3_live(&pos, check_live4_opp)
-       || check_patterndiar3_live(&pos, check_live4_opp) { return 2560 }
-
-    // opp 3,3
-    if (c3f && c3r)  || (c3f && c3dl) || (c3f && c3dr) ||
-       (c3r && c3dl) || (c3r && c3dr) || (c3dl && c3dr) { return -2048 }
+    if n_c3 > 1 { return -2048 }
 
     0 
 }
 
-fn check_patternfile4_once(pos: &Pos, sd: Side) -> bool {
-
-    for rk in 0..RANK_SIZE {
-        for fl in 0..(FILE_SIZE - 5) {
-            let sq : Square = square_make(fl, rk);
-
-            let idx0 = sq;
-            let idx1 = sq + PATTERNFILE4[0];
-            let idx2 = sq + PATTERNFILE4[1];
-            let idx3 = sq + PATTERNFILE4[2];
-            let idx4 = sq + PATTERNFILE4[3];
-            let idx5 = sq + PATTERNFILE4[4];
-
-            let val0 = pos.state[idx0 as usize];
-            let val1 = pos.state[idx1 as usize];
-            let val2 = pos.state[idx2 as usize];
-            let val3 = pos.state[idx3 as usize];
-            let val4 = pos.state[idx4 as usize];
-            let val5 = pos.state[idx5 as usize];
-
-            if val0 == Color::Empty && val1 == sd && val2 == sd && val3 == sd && val4 == sd && val5 == Color::Empty { return true }
-        }  
-    } 
-
-    false 
-}
-
-fn check_patternrank4_once(pos: &Pos, sd: Side) -> bool {
-
-    for rk in 0..(RANK_SIZE - 5) {
-        for fl in 0..FILE_SIZE {
-            let sq : Square = square_make(fl, rk);
-
-            let idx0 = sq;
-            let idx1 = sq + PATTERNRANK4[0];
-            let idx2 = sq + PATTERNRANK4[1];
-            let idx3 = sq + PATTERNRANK4[2];
-            let idx4 = sq + PATTERNRANK4[3];
-            let idx5 = sq + PATTERNRANK4[4];
-
-            let val0 = pos.state[idx0 as usize];
-            let val1 = pos.state[idx1 as usize];
-            let val2 = pos.state[idx2 as usize];
-            let val3 = pos.state[idx3 as usize];
-            let val4 = pos.state[idx4 as usize];
-            let val5 = pos.state[idx5 as usize];
-
-            if val0 == Color::Empty && val1 == sd && val2 == sd && val3 == sd && val4 == sd && val5 == Color::Empty { return true }
-        }  
-    } 
-
-    false 
-}
-
-fn check_patterndial4_once(pos: &Pos, sd : Side) -> bool {
-
-    for rk in 0..(RANK_SIZE - 5) {
-        for fl in 0..(FILE_SIZE - 5) {
-            let sq : Square = square_make(fl, rk);
-
-            let idx0 = sq;
-            let idx1 = sq + PATTERNDIAL4[0];
-            let idx2 = sq + PATTERNDIAL4[1];
-            let idx3 = sq + PATTERNDIAL4[2];
-            let idx4 = sq + PATTERNDIAL4[3];
-            let idx5 = sq + PATTERNDIAL4[4];
-
-            let val0 = pos.state[idx0 as usize];
-            let val1 = pos.state[idx1 as usize];
-            let val2 = pos.state[idx2 as usize];
-            let val3 = pos.state[idx3 as usize];
-            let val4 = pos.state[idx4 as usize];
-            let val5 = pos.state[idx5 as usize];
-
-            if val0 == Color::Empty && val1 == sd && val2 == sd && val3 == sd && val4 == sd && val5 == Color::Empty { return true }
-        }  
-    } 
-
-    false 
-}
-
-fn check_patterndiar4_once(pos: &Pos, sd: Side) -> bool {
-
-    for rk in 0..(RANK_SIZE - 5) {
-        for fl in 5..FILE_SIZE {
-            let sq : Square = square_make(fl, rk);
-
-            let idx0 = sq;
-            let idx1 = sq + PATTERNDIAR4[0];
-            let idx2 = sq + PATTERNDIAR4[1];
-            let idx3 = sq + PATTERNDIAR4[2];
-            let idx4 = sq + PATTERNDIAR4[3];
-            let idx5 = sq + PATTERNDIAR4[4];
-
-            let val0 = pos.state[idx0 as usize];
-            let val1 = pos.state[idx1 as usize];
-            let val2 = pos.state[idx2 as usize];
-            let val3 = pos.state[idx3 as usize];
-            let val4 = pos.state[idx4 as usize];
-            let val5 = pos.state[idx5 as usize];
-
-            if val0 == Color::Empty && val1 == sd && val2 == sd && val3 == sd && val4 == sd && val5 == Color::Empty { return true }
-        }  
-    } 
-
-    false 
-}
-
-fn check_patternfile4_dead(pos: &Pos, sd: Side) -> bool {
-
-    for rk in 0..RANK_SIZE {
-        for fl in 0..(FILE_SIZE - 4) {
-            let sq : Square = square_make(fl, rk);
-
-            let idx0 = sq;
-            let idx1 = sq + PATTERNFILE4[0];
-            let idx2 = sq + PATTERNFILE4[1];
-            let idx3 = sq + PATTERNFILE4[2];
-            let idx4 = sq + PATTERNFILE4[3];
-
-            let val0 = pos.state[idx0 as usize];
-            let val1 = pos.state[idx1 as usize];
-            let val2 = pos.state[idx2 as usize];
-            let val3 = pos.state[idx3 as usize];
-            let val4 = pos.state[idx4 as usize];
-
-            if val0 == sd && val1 == sd && val2 == sd && val3 == sd && val4 == Color::Empty { return true }
-            if val0 == sd && val1 == sd && val2 == sd && val3 == Color::Empty && val4 == sd { return true }
-            if val0 == sd && val1 == sd && val2 == Color::Empty && val3 == sd && val4 == sd { return true }
-            if val0 == sd && val1 == Color::Empty && val2 == sd && val3 == sd && val4 == sd { return true }
-            if val0 == Color::Empty && val1 == sd && val2 == sd && val3 == sd && val4 == sd { return true }
-        }  
-    } 
-
-    false
-}
-
-fn check_patternrank4_dead(pos: &Pos, sd: Side) -> bool {
-
-    for rk in 0..(RANK_SIZE - 4) {
-        for fl in 0..FILE_SIZE {
-            let sq : Square = square_make(fl, rk);
-
-            let idx0 = sq;
-            let idx1 = sq + PATTERNRANK4[0];
-            let idx2 = sq + PATTERNRANK4[1];
-            let idx3 = sq + PATTERNRANK4[2];
-            let idx4 = sq + PATTERNRANK4[3];
-
-            let val0 = pos.state[idx0 as usize];
-            let val1 = pos.state[idx1 as usize];
-            let val2 = pos.state[idx2 as usize];
-            let val3 = pos.state[idx3 as usize];
-            let val4 = pos.state[idx4 as usize];
-
-            if val0 == sd && val1 == sd && val2 == sd && val3 == sd && val4 == Color::Empty { return true }
-            if val0 == sd && val1 == sd && val2 == sd && val3 == Color::Empty && val4 == sd { return true }
-            if val0 == sd && val1 == sd && val2 == Color::Empty && val3 == sd && val4 == sd { return true }
-            if val0 == sd && val1 == Color::Empty && val2 == sd && val3 == sd && val4 == sd { return true }
-            if val0 == Color::Empty && val1 == sd && val2 == sd && val3 == sd && val4 == sd { return true }
-        }  
-    } 
-
-    false
-}
-
-fn check_patterndial4_dead(pos: &Pos, sd: Side) -> bool {
-
-    for rk in 0..(RANK_SIZE - 4) {
-        for fl in 0..(FILE_SIZE - 4) {
-            let sq : Square = square_make(fl, rk);
-
-            let idx0 = sq;
-            let idx1 = sq + PATTERNDIAL4[0];
-            let idx2 = sq + PATTERNDIAL4[1];
-            let idx3 = sq + PATTERNDIAL4[2];
-            let idx4 = sq + PATTERNDIAL4[3];
-
-            let val0 = pos.state[idx0 as usize];
-            let val1 = pos.state[idx1 as usize];
-            let val2 = pos.state[idx2 as usize];
-            let val3 = pos.state[idx3 as usize];
-            let val4 = pos.state[idx4 as usize];
-
-            if val0 == sd && val1 == sd && val2 == sd && val3 == sd && val4 == Color::Empty { return true }
-            if val0 == sd && val1 == sd && val2 == sd && val3 == Color::Empty && val4 == sd { return true }
-            if val0 == sd && val1 == sd && val2 == Color::Empty && val3 == sd && val4 == sd { return true }
-            if val0 == sd && val1 == Color::Empty && val2 == sd && val3 == sd && val4 == sd { return true }
-            if val0 == Color::Empty && val1 == sd && val2 == sd && val3 == sd && val4 == sd { return true }
-        }  
-    } 
-
-    false
-}
-
-fn check_patterndiar4_dead(pos: &Pos, sd: Side) -> bool {
-
-    for rk in 0..(RANK_SIZE - 4) {
-        for fl in 4..FILE_SIZE {
-            let sq : Square = square_make(fl, rk);
-
-            let idx0 = sq;
-            let idx1 = sq + PATTERNDIAR4[0];
-            let idx2 = sq + PATTERNDIAR4[1];
-            let idx3 = sq + PATTERNDIAR4[2];
-            let idx4 = sq + PATTERNDIAR4[3];
-
-            let val0 = pos.state[idx0 as usize];
-            let val1 = pos.state[idx1 as usize];
-            let val2 = pos.state[idx2 as usize];
-            let val3 = pos.state[idx3 as usize];
-            let val4 = pos.state[idx4 as usize];
-
-            if val0 == sd && val1 == sd && val2 == sd && val3 == sd && val4 == Color::Empty { return true }
-            if val0 == sd && val1 == sd && val2 == sd && val3 == Color::Empty && val4 == sd { return true }
-            if val0 == sd && val1 == sd && val2 == Color::Empty && val3 == sd && val4 == sd { return true }
-            if val0 == sd && val1 == Color::Empty && val2 == sd && val3 == sd && val4 == sd { return true }
-            if val0 == Color::Empty && val1 == sd && val2 == sd && val3 == sd && val4 == sd { return true }
-        }  
-    } 
-
-    false 
-}
-
-
-fn check_patternfile4_dead_n(pos: &Pos, sd: Side) -> i32 {
+fn check_pattern5(pos: &Pos, sd: Side) -> bool {
 
     let mut n: i32 = 0;
 
     for rk in 0..RANK_SIZE {
-        for fl in 0..(FILE_SIZE - 4) {
-            let sq : Square = square_make(fl, rk);
-
-            let idx0 = sq;
-            let idx1 = sq + PATTERNFILE4[0];
-            let idx2 = sq + PATTERNFILE4[1];
-            let idx3 = sq + PATTERNFILE4[2];
-            let idx4 = sq + PATTERNFILE4[3];
-
-            let val0 = pos.state[idx0 as usize];
-            let val1 = pos.state[idx1 as usize];
-            let val2 = pos.state[idx2 as usize];
-            let val3 = pos.state[idx3 as usize];
-            let val4 = pos.state[idx4 as usize];
-
-            if val0 == sd && val1 == sd && val2 == sd && val3 == sd && val4 == Color::Empty { n += 1; }
-            if val0 == sd && val1 == sd && val2 == sd && val3 == Color::Empty && val4 == sd { n += 1; }
-            if val0 == sd && val1 == sd && val2 == Color::Empty && val3 == sd && val4 == sd { n += 1; }
-            if val0 == sd && val1 == Color::Empty && val2 == sd && val3 == sd && val4 == sd { n += 1; }
-            if val0 == Color::Empty && val1 == sd && val2 == sd && val3 == sd && val4 == sd { n += 1; }
-        }  
-    } 
-
-    n
-}
-
-fn check_patternrank4_dead_n(pos: &Pos, sd: Side) -> i32 {
-
-    let mut n: i32 = 0;
-
-    for rk in 0..(RANK_SIZE - 4) {
         for fl in 0..FILE_SIZE {
             let sq : Square = square_make(fl, rk);
 
-            let idx0 = sq;
-            let idx1 = sq + PATTERNRANK4[0];
-            let idx2 = sq + PATTERNRANK4[1];
-            let idx3 = sq + PATTERNRANK4[2];
-            let idx4 = sq + PATTERNRANK4[3];
-
-            let val0 = pos.state[idx0 as usize];
-            let val1 = pos.state[idx1 as usize];
-            let val2 = pos.state[idx2 as usize];
-            let val3 = pos.state[idx3 as usize];
-            let val4 = pos.state[idx4 as usize];
-
-            if val0 == sd && val1 == sd && val2 == sd && val3 == sd && val4 == Color::Empty { n += 1; }
-            if val0 == sd && val1 == sd && val2 == sd && val3 == Color::Empty && val4 == sd { n += 1; }
-            if val0 == sd && val1 == sd && val2 == Color::Empty && val3 == sd && val4 == sd { n += 1; }
-            if val0 == sd && val1 == Color::Empty && val2 == sd && val3 == sd && val4 == sd { n += 1; }
-            if val0 == Color::Empty && val1 == sd && val2 == sd && val3 == sd && val4 == sd { n += 1; }
-        }  
-    } 
-
-    n
-}
-
-fn check_patterndial4_dead_n(pos: &Pos, sd: Side) -> i32 {
-
-    let mut n: i32 = 0;
-
-    for rk in 0..(RANK_SIZE - 4) {
-        for fl in 0..(FILE_SIZE - 4) {
-            let sq : Square = square_make(fl, rk);
-
-            let idx0 = sq;
-            let idx1 = sq + PATTERNDIAL4[0];
-            let idx2 = sq + PATTERNDIAL4[1];
-            let idx3 = sq + PATTERNDIAL4[2];
-            let idx4 = sq + PATTERNDIAL4[3];
-
-            let val0 = pos.state[idx0 as usize];
-            let val1 = pos.state[idx1 as usize];
-            let val2 = pos.state[idx2 as usize];
-            let val3 = pos.state[idx3 as usize];
-            let val4 = pos.state[idx4 as usize];
-
-            if val0 == sd && val1 == sd && val2 == sd && val3 == sd && val4 == Color::Empty { n += 1; }
-            if val0 == sd && val1 == sd && val2 == sd && val3 == Color::Empty && val4 == sd { n += 1; }
-            if val0 == sd && val1 == sd && val2 == Color::Empty && val3 == sd && val4 == sd { n += 1; }
-            if val0 == sd && val1 == Color::Empty && val2 == sd && val3 == sd && val4 == sd { n += 1; }
-            if val0 == Color::Empty && val1 == sd && val2 == sd && val3 == sd && val4 == sd { n += 1; }
-        }  
-    } 
-
-    n
-}
-
-fn check_patterndiar4_dead_n(pos: &Pos, sd: Side) -> i32 {
-
-    let mut n: i32 = 0;
-
-    for rk in 0..(RANK_SIZE - 4) {
-        for fl in 4..FILE_SIZE {
-            let sq : Square = square_make(fl, rk);
-
-            let idx0 = sq;
-            let idx1 = sq + PATTERNDIAR4[0];
-            let idx2 = sq + PATTERNDIAR4[1];
-            let idx3 = sq + PATTERNDIAR4[2];
-            let idx4 = sq + PATTERNDIAR4[3];
-
-            let val0 = pos.state[idx0 as usize];
-            let val1 = pos.state[idx1 as usize];
-            let val2 = pos.state[idx2 as usize];
-            let val3 = pos.state[idx3 as usize];
-            let val4 = pos.state[idx4 as usize];
-
-            if val0 == sd && val1 == sd && val2 == sd && val3 == sd && val4 == Color::Empty { n += 1; }
-            if val0 == sd && val1 == sd && val2 == sd && val3 == Color::Empty && val4 == sd { n += 1; }
-            if val0 == sd && val1 == sd && val2 == Color::Empty && val3 == sd && val4 == sd { n += 1; }
-            if val0 == sd && val1 == Color::Empty && val2 == sd && val3 == sd && val4 == sd { n += 1; }
-            if val0 == Color::Empty && val1 == sd && val2 == sd && val3 == sd && val4 == sd { n += 1; }
-        }  
-    } 
-
-    n
-}
-
-
-fn check_patternfile3_live(pos: &Pos, sd: Side) -> bool {
-
-    for rk in 0..RANK_SIZE {
-        for fl in 0..(FILE_SIZE - 4) {
-            let sq : Square = square_make(fl, rk);
-
-            let idx0 = sq;
-            let idx1 = sq + PATTERNFILE4[0];
-            let idx2 = sq + PATTERNFILE4[1];
-            let idx3 = sq + PATTERNFILE4[2];
-            let idx4 = sq + PATTERNFILE4[3];
-
-            let val0 = pos.state[idx0 as usize];
-            let val1 = pos.state[idx1 as usize];
-            let val2 = pos.state[idx2 as usize];
-            let val3 = pos.state[idx3 as usize];
-            let val4 = pos.state[idx4 as usize];
-
-            if val0 == Color::Empty && val1 == sd && val2 == sd && val3 == sd && val4 == Color::Empty { return true }
-        }  
-    } 
-
-    for rk in 0..RANK_SIZE {
-        for fl in 0..(FILE_SIZE - 5) {
-            let sq : Square = square_make(fl, rk);
-
-            let idx0 = sq;
-            let idx1 = sq + PATTERNFILE4[0];
-            let idx2 = sq + PATTERNFILE4[1];
-            let idx3 = sq + PATTERNFILE4[2];
-            let idx4 = sq + PATTERNFILE4[3];
-            let idx5 = sq + PATTERNFILE4[4];
-
-            let val0 = pos.state[idx0 as usize];
-            let val1 = pos.state[idx1 as usize];
-            let val2 = pos.state[idx2 as usize];
-            let val3 = pos.state[idx3 as usize];
-            let val4 = pos.state[idx4 as usize];
-            let val5 = pos.state[idx5 as usize];
-
-            if val0 == Color::Empty && val1 == sd && val2 == sd && val3 == Color::Empty && val4 == sd && val5 == Color::Empty { return true }
-            if val0 == Color::Empty && val1 == sd && val2 == Color::Empty && val3 == sd && val4 == sd && val5 == Color::Empty { return true }
-        }  
-    } 
-
-    false 
-}
-
-fn check_patternrank3_live(pos: &Pos, sd: Side) -> bool {
-
-    for rk in 0..(RANK_SIZE - 4) {
-        for fl in 0..FILE_SIZE {
-            let sq : Square = square_make(fl, rk);
-
-            let idx0 = sq;
-            let idx1 = sq + PATTERNRANK4[0];
-            let idx2 = sq + PATTERNRANK4[1];
-            let idx3 = sq + PATTERNRANK4[2];
-            let idx4 = sq + PATTERNRANK4[3];
-
-            let val0 = pos.state[idx0 as usize];
-            let val1 = pos.state[idx1 as usize];
-            let val2 = pos.state[idx2 as usize];
-            let val3 = pos.state[idx3 as usize];
-            let val4 = pos.state[idx4 as usize];
-
-            if val0 == Color::Empty && val1 == sd && val2 == sd && val3 == sd && val4 == Color::Empty { return true }
-        }  
-    } 
-
-    for rk in 0..(RANK_SIZE - 5) {
-        for fl in 0..FILE_SIZE {
-            let sq : Square = square_make(fl, rk);
-
-            let idx0 = sq;
-            let idx1 = sq + PATTERNRANK4[0];
-            let idx2 = sq + PATTERNRANK4[1];
-            let idx3 = sq + PATTERNRANK4[2];
-            let idx4 = sq + PATTERNRANK4[3];
-            let idx5 = sq + PATTERNRANK4[4];
-
-            let val0 = pos.state[idx0 as usize];
-            let val1 = pos.state[idx1 as usize];
-            let val2 = pos.state[idx2 as usize];
-            let val3 = pos.state[idx3 as usize];
-            let val4 = pos.state[idx4 as usize];
-            let val5 = pos.state[idx5 as usize];
-
-            if val0 == Color::Empty && val1 == sd && val2 == sd && val3 == Color::Empty && val4 == sd && val5 == Color::Empty { return true }
-            if val0 == Color::Empty && val1 == sd && val2 == Color::Empty && val3 == sd && val4 == sd && val5 == Color::Empty { return true }
-        }  
-    } 
-
-    false 
-}
-
-fn check_patterndial3_live(pos: &Pos, sd: Side) -> bool {
-
-    for rk in 0..(RANK_SIZE - 4) {
-        for fl in 0..(FILE_SIZE - 4) {
-            let sq : Square = square_make(fl, rk);
-
-            let idx0 = sq;
-            let idx1 = sq + PATTERNDIAL4[0];
-            let idx2 = sq + PATTERNDIAL4[1];
-            let idx3 = sq + PATTERNDIAL4[2];
-            let idx4 = sq + PATTERNDIAL4[3];
-
-            let val0 = pos.state[idx0 as usize];
-            let val1 = pos.state[idx1 as usize];
-            let val2 = pos.state[idx2 as usize];
-            let val3 = pos.state[idx3 as usize];
-            let val4 = pos.state[idx4 as usize];
-
-            if val0 == Color::Empty && val1 == sd && val2 == sd && val3 == sd && val4 == Color::Empty { return true }
-        }  
-    } 
-
-    for rk in 0..(RANK_SIZE - 5) {
-        for fl in 0..(FILE_SIZE - 5) {
-            let sq : Square = square_make(fl, rk);
-
-            let idx0 = sq;
-            let idx1 = sq + PATTERNDIAL4[0];
-            let idx2 = sq + PATTERNDIAL4[1];
-            let idx3 = sq + PATTERNDIAL4[2];
-            let idx4 = sq + PATTERNDIAL4[3];
-            let idx5 = sq + PATTERNDIAL4[4];
-
-            let val0 = pos.state[idx0 as usize];
-            let val1 = pos.state[idx1 as usize];
-            let val2 = pos.state[idx2 as usize];
-            let val3 = pos.state[idx3 as usize];
-            let val4 = pos.state[idx4 as usize];
-            let val5 = pos.state[idx5 as usize];
-
-            if val0 == Color::Empty && val1 == sd && val2 == sd && val3 == Color::Empty && val4 == sd && val5 == Color::Empty { return true }
-            if val0 == Color::Empty && val1 == sd && val2 == Color::Empty && val3 == sd && val4 == sd && val5 == Color::Empty { return true }
-        }  
-    } 
-
-    false 
-}
-
-fn check_patterndiar3_live(pos: &Pos, sd: Side) -> bool {
-
-    for rk in 0..(RANK_SIZE - 4) {
-        for fl in 4..FILE_SIZE {
-            let sq : Square = square_make(fl, rk);
-
-            let idx0 = sq;
-            let idx1 = sq + PATTERNDIAR4[0];
-            let idx2 = sq + PATTERNDIAR4[1];
-            let idx3 = sq + PATTERNDIAR4[2];
-            let idx4 = sq + PATTERNDIAR4[3];
-
-            let val0 = pos.state[idx0 as usize];
-            let val1 = pos.state[idx1 as usize];
-            let val2 = pos.state[idx2 as usize];
-            let val3 = pos.state[idx3 as usize];
-            let val4 = pos.state[idx4 as usize];
-
-            if val0 == Color::Empty && val1 == sd && val2 == sd && val3 == sd && val4 == Color::Empty { return true }
-        }  
-    } 
-
-    for rk in 0..(RANK_SIZE - 5) {
-        for fl in 5..FILE_SIZE {
-            let sq : Square = square_make(fl, rk);
-
-            let idx0 = sq;
-            let idx1 = sq + PATTERNDIAR4[0];
-            let idx2 = sq + PATTERNDIAR4[1];
-            let idx3 = sq + PATTERNDIAR4[2];
-            let idx4 = sq + PATTERNDIAR4[3];
-            let idx5 = sq + PATTERNDIAR4[4];
-
-            let val0 = pos.state[idx0 as usize];
-            let val1 = pos.state[idx1 as usize];
-            let val2 = pos.state[idx2 as usize];
-            let val3 = pos.state[idx3 as usize];
-            let val4 = pos.state[idx4 as usize];
-            let val5 = pos.state[idx5 as usize];
-
-            if val0 == Color::Empty && val1 == sd && val2 == sd && val3 == Color::Empty && val4 == sd && val5 == Color::Empty { return true }
-            if val0 == Color::Empty && val1 == sd && val2 == Color::Empty && val3 == sd && val4 == sd && val5 == Color::Empty { return true }
-        }  
-    } 
-
-    false 
-}
-
-
-#[cfg(test)]
-mod tests {
-
-    use super::*;
-
-   #[test]
-    fn test_pos_is_draw() {
-
-        let test_state: [Color; SQUARE_SIZE as usize] = [Color::Black; SQUARE_SIZE as usize];
-
-        let mut test1 = Pos {
-            state: test_state,
-            p_turn: Color::Black,
-            p_last: square_make(5,5),
-        };
-
-        // fill white to draw 
-        for i in (0..19).step_by(2) {
-            test1.state[ square_make(0, i) as usize ] = Color::White;
-            test1.state[ square_make(1, i) as usize ] = Color::White;
-            test1.state[ square_make(2, i) as usize ] = Color::White;
-            test1.state[ square_make(3, i) as usize ] = Color::White;
-    
-            test1.state[ square_make(8, i) as usize ] = Color::White;
-            test1.state[ square_make(9, i) as usize ] = Color::White;
-            test1.state[ square_make(10,i) as usize ] = Color::White;
-            test1.state[ square_make(11,i) as usize ] = Color::White;
-        
-            test1.state[ square_make(16,i) as usize ] = Color::White;
-            test1.state[ square_make(17,i) as usize ] = Color::White;
-            test1.state[ square_make(18,i) as usize ] = Color::White;
-        }
-
-        for i in (1..19).step_by(2) {
-            test1.state[ square_make(4, i) as usize ] = Color::White;
-            test1.state[ square_make(5, i) as usize ] = Color::White;
-            test1.state[ square_make(6, i) as usize ] = Color::White;
-            test1.state[ square_make(7, i) as usize ] = Color::White;
-    
-            test1.state[ square_make(12,i) as usize ] = Color::White;
-            test1.state[ square_make(13,i) as usize ] = Color::White;
-            test1.state[ square_make(14,i) as usize ] = Color::White;
-            test1.state[ square_make(15,i) as usize ] = Color::White;
-        }
-            
-        assert_eq!( pos_is_draw(&test1), true);
-    }
-
-   #[test]
-    fn test_pos_is_winner() {
-
-        //test _OOOO
-        for _n in 0..1000 {
-
-        let test_state: [Color; SQUARE_SIZE as usize] = [Color::Empty; SQUARE_SIZE as usize];
-
-        let mut test1 = Pos {
-            state: test_state,
-            p_turn: Color::Black,
-            p_last: square_make(5,5),
-        };
-
-        let mut rng = rand::thread_rng();
-
-        let rk = rng.gen_range(0, RANK_SIZE);
-        let fl = rng.gen_range(0, FILE_SIZE );
-
-        test1.do_move(square_make(fl,rk));
-
-        test1.state[ square_make(fl + 1, rk) as usize ] = Color::Black;
-        test1.state[ square_make(fl + 2, rk) as usize ] = Color::Black;
-        test1.state[ square_make(fl + 3, rk) as usize ] = Color::Black;
-        test1.state[ square_make(fl + 4, rk) as usize ] = Color::Black;
-
-        assert_eq!(pos_is_winner(&test1), true);
-        }
-
-        //test O_OOO
-        for _n in 0..1000 {
-
-        let test_state: [Color; SQUARE_SIZE as usize] = [Color::Empty; SQUARE_SIZE as usize];
-
-        let mut test1 = Pos {
-            state: test_state,
-            p_turn: Color::White,
-            p_last: square_make(5,5),
-        };
-
-        let mut rng = rand::thread_rng();
-
-        let rk = rng.gen_range(0, RANK_SIZE);
-        let fl = rng.gen_range(0, FILE_SIZE);
-
-        test1.do_move(square_make(fl,rk));
-
-        test1.state[ square_make(fl - 1, rk) as usize ] = Color::White;
-        test1.state[ square_make(fl + 1, rk) as usize ] = Color::White;
-        test1.state[ square_make(fl + 2, rk) as usize ] = Color::White;
-        test1.state[ square_make(fl + 3, rk) as usize ] = Color::White;
-
-        assert_eq!(pos_is_winner(&test1), true );
-        }
-
-        //test OO_OO
-        for _n in 0..1000 {
-
-        let test_state: [Color; SQUARE_SIZE as usize] = [Color::Empty; SQUARE_SIZE as usize];
-
-        let mut test1 = Pos {
-            state: test_state,
-            p_turn: Color::White,
-            p_last: square_make(5,5),
-        };
-
-        let mut rng = rand::thread_rng();
-
-        let rk = rng.gen_range(0, RANK_SIZE);
-        let fl = rng.gen_range(0, FILE_SIZE);
-
-        test1.do_move(square_make(fl,rk));
-
-        test1.state[ square_make(fl - 2, rk) as usize ] = Color::White;
-        test1.state[ square_make(fl - 1, rk) as usize ] = Color::White;
-        test1.state[ square_make(fl + 1, rk) as usize ] = Color::White;
-        test1.state[ square_make(fl + 2, rk) as usize ] = Color::White;
-
-        assert_eq!(pos_is_winner(&test1), true );
-        }
-
-        //test OOO_O
-        for _n in 0..1000 {
-
-        let test_state: [Color; SQUARE_SIZE as usize] = [Color::Empty; SQUARE_SIZE as usize];
-
-        let mut test1 = Pos {
-            state: test_state,
-            p_turn: Color::White,
-            p_last: square_make(5,5),
-        };
-
-        let mut rng = rand::thread_rng();
-
-        let rk = rng.gen_range(0, RANK_SIZE);
-        let fl = rng.gen_range(0, FILE_SIZE);
-
-        test1.do_move(square_make(fl,rk));
-
-        test1.state[ square_make(fl - 3, rk) as usize ] = Color::White;
-        test1.state[ square_make(fl - 2, rk) as usize ] = Color::White;
-        test1.state[ square_make(fl - 1, rk) as usize ] = Color::White;
-        test1.state[ square_make(fl + 1, rk) as usize ] = Color::White;
-
-        assert_eq!(pos_is_winner(&test1), true );
-        }
-
-        //test _OOOO
-        for _n in 0..1000 {
-
-        let test_state: [Color; SQUARE_SIZE as usize] = [Color::Empty; SQUARE_SIZE as usize];
-
-        let mut test1 = Pos {
-            state: test_state,
-            p_turn: Color::White,
-            p_last: square_make(5,5),
-        };
-
-        let mut rng = rand::thread_rng();
-
-        let rk = rng.gen_range(0, RANK_SIZE);
-        let fl = rng.gen_range(0, FILE_SIZE);
-
-        test1.do_move(square_make(fl,rk));
-
-        test1.state[ square_make(fl - 1, rk) as usize ] = Color::White;
-        test1.state[ square_make(fl - 2, rk) as usize ] = Color::White;
-        test1.state[ square_make(fl - 3, rk) as usize ] = Color::White;
-        test1.state[ square_make(fl - 4, rk) as usize ] = Color::White;
-
-        assert_eq!(pos_is_winner(&test1), true );
-        }
-
-        // _
-        // O
-        // O
-        // O
-        // O
-        for _n in 0..1000 {
-
-        let test_state: [Color; SQUARE_SIZE as usize] = [Color::Empty; SQUARE_SIZE as usize];
-
-        let mut test1 = Pos {
-            state: test_state,
-            p_turn: Color::Black,
-            p_last: square_make(5,5),
-        };
-
-        let mut rng = rand::thread_rng();
-
-        let rk = rng.gen_range(0, RANK_SIZE);
-        let fl = rng.gen_range(0, FILE_SIZE);
-
-        test1.do_move(square_make(fl,rk));
-
-        test1.state[ square_make(fl, rk + 1) as usize ] = Color::Black;
-        test1.state[ square_make(fl, rk + 2) as usize ] = Color::Black;
-        test1.state[ square_make(fl, rk + 3) as usize ] = Color::Black;
-        test1.state[ square_make(fl, rk + 4) as usize ] = Color::Black;
-
-        assert_eq!(pos_is_winner(&test1), true );
-        }
-
-        // O
-        // _
-        // O
-        // O
-        // O
-        for _n in 0..1000 {
-
-        let test_state: [Color; SQUARE_SIZE as usize] = [Color::Empty; SQUARE_SIZE as usize];
-
-        let mut test1 = Pos {
-            state: test_state,
-            p_turn: Color::Black,
-            p_last: square_make(5,5),
-        };
-
-        let mut rng = rand::thread_rng();
-
-        let rk = rng.gen_range(0, RANK_SIZE);
-        let fl = rng.gen_range(0, FILE_SIZE);
-
-        test1.do_move(square_make(fl,rk));
-
-        test1.state[ square_make(fl, rk - 1) as usize ] = Color::Black;
-        test1.state[ square_make(fl, rk + 1) as usize ] = Color::Black;
-        test1.state[ square_make(fl, rk + 2) as usize ] = Color::Black;
-        test1.state[ square_make(fl, rk + 3) as usize ] = Color::Black;
-
-        assert_eq!(pos_is_winner(&test1), true );
-        }
-
-        // O
-        // O
-        // _
-        // O
-        // O
-        for _n in 0..1000 {
-
-        let test_state: [Color; SQUARE_SIZE as usize] = [Color::Empty; SQUARE_SIZE as usize];
-
-        let mut test1 = Pos {
-            state: test_state,
-            p_turn: Color::Black,
-            p_last: square_make(5,5),
-        };
-
-        let mut rng = rand::thread_rng();
-
-        let rk = rng.gen_range(0, RANK_SIZE);
-        let fl = rng.gen_range(0, FILE_SIZE);
-
-        test1.do_move(square_make(fl,rk));
-
-        test1.state[ square_make(fl, rk - 2) as usize ] = Color::Black;
-        test1.state[ square_make(fl, rk - 1) as usize ] = Color::Black;
-        test1.state[ square_make(fl, rk + 1) as usize ] = Color::Black;
-        test1.state[ square_make(fl, rk + 2) as usize ] = Color::Black;
-
-        assert_eq!(pos_is_winner(&test1), true );
-        }
-
-        // O
-        // O
-        // O
-        // _
-        // O
-        for _n in 0..1000 {
-
-        let test_state: [Color; SQUARE_SIZE as usize] = [Color::Empty; SQUARE_SIZE as usize];
-
-        let mut test1 = Pos {
-            state: test_state,
-            p_turn: Color::Black,
-            p_last: square_make(5,5),
-        };
-
-        let mut rng = rand::thread_rng();
-
-        let rk = rng.gen_range(0, RANK_SIZE);
-        let fl = rng.gen_range(0, FILE_SIZE);
-
-        test1.do_move(square_make(fl,rk));
-
-        test1.state[ square_make(fl, rk - 3) as usize ] = Color::Black;
-        test1.state[ square_make(fl, rk - 2) as usize ] = Color::Black;
-        test1.state[ square_make(fl, rk - 1) as usize ] = Color::Black;
-        test1.state[ square_make(fl, rk + 1) as usize ] = Color::Black;
-
-        assert_eq!(pos_is_winner(&test1), true );
-        }
-
-        // O
-        // O
-        // O
-        // O
-        // _
-        for _n in 0..1000 {
-
-        let test_state: [Color; SQUARE_SIZE as usize] = [Color::Empty; SQUARE_SIZE as usize];
-
-        let mut test1 = Pos {
-            state: test_state,
-            p_turn: Color::White,
-            p_last: square_make(5,5),
-        };
-
-        let mut rng = rand::thread_rng();
-
-        let rk = rng.gen_range(0, RANK_SIZE);
-        let fl = rng.gen_range(0, FILE_SIZE);
-
-        test1.do_move(square_make(fl,rk));
-
-        test1.state[ square_make(fl, rk - 4) as usize ] = Color::White;
-        test1.state[ square_make(fl, rk - 3) as usize ] = Color::White;
-        test1.state[ square_make(fl, rk - 2) as usize ] = Color::White;
-        test1.state[ square_make(fl, rk - 1) as usize ] = Color::White;
-
-        assert_eq!(pos_is_winner(&test1), true );
-        }
-
-        // _
-        //  O
-        //   O
-        //    O
-        //     O
-        for _n in 0..1000 {
-
-        let test_state: [Color; SQUARE_SIZE as usize] = [Color::Empty; SQUARE_SIZE as usize];
-
-        let mut test1 = Pos {
-            state: test_state,
-            p_turn: Color::Black,
-            p_last: square_make(5,5),
-        };
-
-        let mut rng = rand::thread_rng();
-
-        let rk = rng.gen_range(0, RANK_SIZE);
-        let fl = rng.gen_range(0, FILE_SIZE);
-
-        test1.do_move(square_make(fl,rk));
-
-        test1.state[ square_make(fl + 1, rk + 1) as usize ] = Color::Black;
-        test1.state[ square_make(fl + 2, rk + 2) as usize ] = Color::Black;
-        test1.state[ square_make(fl + 3, rk + 3) as usize ] = Color::Black;
-        test1.state[ square_make(fl + 4, rk + 4) as usize ] = Color::Black;
-
-        assert_eq!(pos_is_winner(&test1), true );
-        }
-
-        // _
-        //  O
-        //   O
-        //    O
-        //     O
-        for _n in 0..1000 {
-
-        let test_state: [Color; SQUARE_SIZE as usize] = [Color::Empty; SQUARE_SIZE as usize];
-
-        let mut test1 = Pos {
-            state: test_state,
-            p_turn: Color::Black,
-            p_last: square_make(5,5),
-        };
-
-        let mut rng = rand::thread_rng();
-
-        let rk = rng.gen_range(0, RANK_SIZE);
-        let fl = rng.gen_range(0, FILE_SIZE);
-
-        test1.do_move(square_make(fl,rk));
-
-        test1.state[ square_make(fl + 1, rk + 1) as usize ] = Color::Black;
-        test1.state[ square_make(fl + 2, rk + 2) as usize ] = Color::Black;
-        test1.state[ square_make(fl + 3, rk + 3) as usize ] = Color::Black;
-        test1.state[ square_make(fl + 4, rk + 4) as usize ] = Color::Black;
-
-        assert_eq!(pos_is_winner(&test1), true );
-        }
-
-        // O
-        //  _
-        //   O
-        //    O
-        //     O
-        for _n in 0..1000 {
-
-        let test_state: [Color; SQUARE_SIZE as usize] = [Color::Empty; SQUARE_SIZE as usize];
-
-        let mut test1 = Pos {
-            state: test_state,
-            p_turn: Color::Black,
-            p_last: square_make(5,5),
-        };
-
-        let mut rng = rand::thread_rng();
-
-        let rk = rng.gen_range(0, RANK_SIZE);
-        let fl = rng.gen_range(0, FILE_SIZE);
-
-        test1.do_move(square_make(fl,rk));
-
-        test1.state[ square_make(fl - 1, rk - 1) as usize ] = Color::Black;
-        test1.state[ square_make(fl + 1, rk + 1) as usize ] = Color::Black;
-        test1.state[ square_make(fl + 2, rk + 2) as usize ] = Color::Black;
-        test1.state[ square_make(fl + 3, rk + 3) as usize ] = Color::Black;
-
-        assert_eq!(pos_is_winner(&test1), true );
-        }
-
-        // O
-        //  O
-        //   _
-        //    O
-        //     O
-        for _n in 0..1000 {
-
-        let test_state: [Color; SQUARE_SIZE as usize] = [Color::Empty; SQUARE_SIZE as usize];
-
-        let mut test1 = Pos {
-            state: test_state,
-            p_turn: Color::Black,
-            p_last: square_make(5,5),
-        };
-
-        let mut rng = rand::thread_rng();
-
-        let rk = rng.gen_range(0, RANK_SIZE);
-        let fl = rng.gen_range(0, FILE_SIZE);
-
-        test1.do_move(square_make(fl,rk));
-
-        test1.state[ square_make(fl - 2, rk - 2) as usize ] = Color::Black;
-        test1.state[ square_make(fl - 1, rk - 1) as usize ] = Color::Black;
-        test1.state[ square_make(fl + 1, rk + 1) as usize ] = Color::Black;
-        test1.state[ square_make(fl + 2, rk + 2) as usize ] = Color::Black;
-
-        assert_eq!(pos_is_winner(&test1), true );
-        }
-
-        // O
-        //  O
-        //   O
-        //    _
-        //     O
-        for _n in 0..1000 {
-
-        let test_state: [Color; SQUARE_SIZE as usize] = [Color::Empty; SQUARE_SIZE as usize];
-
-        let mut test1 = Pos {
-            state: test_state,
-            p_turn: Color::Black,
-            p_last: square_make(5,5),
-        };
-
-        let mut rng = rand::thread_rng();
-
-        let rk = rng.gen_range(0, RANK_SIZE);
-        let fl = rng.gen_range(0, FILE_SIZE);
-
-        test1.do_move(square_make(fl,rk));
-
-        test1.state[ square_make(fl - 3, rk - 3) as usize ] = Color::Black;
-        test1.state[ square_make(fl - 2, rk - 2) as usize ] = Color::Black;
-        test1.state[ square_make(fl - 1, rk - 1) as usize ] = Color::Black;
-        test1.state[ square_make(fl + 1, rk + 1) as usize ] = Color::Black;
-
-        assert_eq!(pos_is_winner(&test1), true );
-        }
-
-        // O
-        //  O
-        //   O
-        //    O
-        //     _
-        for _n in 0..1000 {
-
-        let test_state: [Color; SQUARE_SIZE as usize] = [Color::Empty; SQUARE_SIZE as usize];
-
-        let mut test1 = Pos {
-            state: test_state,
-            p_turn: Color::White,
-            p_last: square_make(5,5),
-        };
-
-        let mut rng = rand::thread_rng();
-
-        let rk = rng.gen_range(0, RANK_SIZE);
-        let fl = rng.gen_range(0, FILE_SIZE);
-
-        test1.do_move(square_make(fl,rk));
-
-        test1.state[ square_make(fl - 4, rk - 4) as usize ] = Color::White;
-        test1.state[ square_make(fl - 3, rk - 3) as usize ] = Color::White;
-        test1.state[ square_make(fl - 2, rk - 2) as usize ] = Color::White;
-        test1.state[ square_make(fl - 1, rk - 1) as usize ] = Color::White;
-
-
-        assert_eq!(pos_is_winner(&test1), true );
-        }
-
-        //     _
-        //    O
-        //   O
-        //  O
-        // O
-        for _n in 0..1000 {
-
-        let test_state: [Color; SQUARE_SIZE as usize] = [Color::Empty; SQUARE_SIZE as usize];
-
-        let mut test1 = Pos {
-            state: test_state,
-            p_turn: Color::Black,
-            p_last: square_make(5,5),
-        };
-
-        let mut rng = rand::thread_rng();
-
-        let rk = rng.gen_range(0, RANK_SIZE);
-        let fl = rng.gen_range(0, FILE_SIZE);
-
-        test1.do_move(square_make(fl,rk));
-
-        test1.state[ square_make(fl - 1, rk + 1) as usize ] = Color::Black;
-        test1.state[ square_make(fl - 2, rk + 2) as usize ] = Color::Black;
-        test1.state[ square_make(fl - 3, rk + 3) as usize ] = Color::Black;
-        test1.state[ square_make(fl - 4, rk + 4) as usize ] = Color::Black;
-
-        assert_eq!(pos_is_winner(&test1), true );
-        }
-
-
-        //     O
-        //    _
-        //   O
-        //  O
-        // O
-        for _n in 0..1000 {
-
-        let test_state: [Color; SQUARE_SIZE as usize] = [Color::Empty; SQUARE_SIZE as usize];
-
-        let mut test1 = Pos {
-            state: test_state,
-            p_turn: Color::Black,
-            p_last: square_make(5,5),
-        };
-
-        let mut rng = rand::thread_rng();
-
-        let rk = rng.gen_range(0, RANK_SIZE);
-        let fl = rng.gen_range(0, FILE_SIZE);
-
-        test1.do_move(square_make(fl,rk));
-
-        test1.state[ square_make(fl + 1, rk - 1) as usize ] = Color::Black;
-        test1.state[ square_make(fl - 1, rk + 1) as usize ] = Color::Black;
-        test1.state[ square_make(fl - 2, rk + 2) as usize ] = Color::Black;
-        test1.state[ square_make(fl - 3, rk + 3) as usize ] = Color::Black;
-
-        assert_eq!(pos_is_winner(&test1), true );
-        }
-
-        //     O
-        //    O
-        //   _
-        //  O
-        // O
-        for _n in 0..1000 {
-
-        let test_state: [Color; SQUARE_SIZE as usize] = [Color::Empty; SQUARE_SIZE as usize];
-
-        let mut test1 = Pos {
-            state: test_state,
-            p_turn: Color::Black,
-            p_last: square_make(5,5),
-        };
-
-        let mut rng = rand::thread_rng();
-
-        let rk = rng.gen_range(0, RANK_SIZE);
-        let fl = rng.gen_range(0, FILE_SIZE);
-
-        test1.do_move(square_make(fl,rk));
-
-        test1.state[ square_make(fl + 2, rk - 2) as usize ] = Color::Black;
-        test1.state[ square_make(fl + 1, rk - 1) as usize ] = Color::Black;
-        test1.state[ square_make(fl - 1, rk + 1) as usize ] = Color::Black;
-        test1.state[ square_make(fl - 2, rk + 2) as usize ] = Color::Black;
-
-        assert_eq!(pos_is_winner(&test1), true );
-        }
-
-        //     O
-        //    O
-        //   O
-        //  _
-        // O
-        for _n in 0..1000 {
-
-        let test_state: [Color; SQUARE_SIZE as usize] = [Color::Empty; SQUARE_SIZE as usize];
-
-        let mut test1 = Pos {
-            state: test_state,
-            p_turn: Color::Black,
-            p_last: square_make(5,5),
-        };
-
-        let mut rng = rand::thread_rng();
-
-        let rk = rng.gen_range(0, RANK_SIZE);
-        let fl = rng.gen_range(0, FILE_SIZE);
-
-        test1.do_move(square_make(fl,rk));
-
-        test1.state[ square_make(fl + 3, rk - 3) as usize ] = Color::Black;
-        test1.state[ square_make(fl + 2, rk - 2) as usize ] = Color::Black;
-        test1.state[ square_make(fl + 1, rk - 1) as usize ] = Color::Black;
-        test1.state[ square_make(fl - 1, rk + 1) as usize ] = Color::Black;
-
-        assert_eq!(pos_is_winner(&test1), true );
-        }
-
-        //     O
-        //    O
-        //   O
-        //  O
-        // _
-        for n in 0..1000 {
-
-        let test_state: [Color; SQUARE_SIZE as usize] = [Color::Empty; SQUARE_SIZE as usize];
-
-        let mut test1 = Pos {
-            state: test_state,
-            p_turn: Color::Black,
-            p_last: square_make(5,5),
-        };
-
-        let mut rng = rand::thread_rng();
-
-        let rk = rng.gen_range(0, RANK_SIZE);
-        let fl = rng.gen_range(0, FILE_SIZE);
-
-        test1.do_move(square_make(fl,rk));
-
-        test1.state[ square_make(fl + 4, rk - 4) as usize ] = Color::Black;
-        test1.state[ square_make(fl + 3, rk - 3) as usize ] = Color::Black;
-        test1.state[ square_make(fl + 2, rk - 2) as usize ] = Color::Black;
-        test1.state[ square_make(fl + 1, rk - 1) as usize ] = Color::Black;
-
-        assert_eq!(pos_is_winner(&test1), true );
+	    for pat in 0..4 {
+                let idx0 = sq;
+                let idx1 = sq + PATTERN[pat][0];
+                let idx2 = sq + PATTERN[pat][1];
+                let idx3 = sq + PATTERN[pat][2];
+                let idx4 = sq + PATTERN[pat][3];
+
+                let val0 = pos.state[idx0 as usize];
+                let val1 = pos.state[idx1 as usize];
+                let val2 = pos.state[idx2 as usize];
+                let val3 = pos.state[idx3 as usize];
+                let val4 = pos.state[idx4 as usize];
+
+                if val0 == sd && val1 == sd && val2 == sd && val3 == sd && val4 == sd { n += 1; }
+            }
         }
     }
 
+    if n > 0 { true } else { false }
+
+    //false
 }
 
+fn check_patternlive4(pos: &Pos, sd: Side) -> bool {
 
+    let mut n: i32 = 0;
+
+    for rk in 0..RANK_SIZE {
+        for fl in 0..FILE_SIZE {
+            let sq : Square = square_make(fl, rk);
+
+            for pat in 0..4 {
+                let idx0 = sq;
+                let idx1 = sq + PATTERN[pat][0];
+                let idx2 = sq + PATTERN[pat][1];
+                let idx3 = sq + PATTERN[pat][2];
+                let idx4 = sq + PATTERN[pat][3];
+                let idx5 = sq + PATTERN[pat][4];
+
+                let val0 = pos.state[idx0 as usize];
+                let val1 = pos.state[idx1 as usize];
+                let val2 = pos.state[idx2 as usize];
+                let val3 = pos.state[idx3 as usize];
+                let val4 = pos.state[idx4 as usize];
+                let val5 = pos.state[idx5 as usize];
+
+                if val0 == Color::Empty && val1 == sd && val2 == sd && val3 == sd && val4 == sd && val5 == Color::Empty { n += 1; }
+            }
+        } 
+    } 
+
+    if n > 0 { true } else { false }
+}
+
+fn check_patterndead4(pos: &Pos, sd: Side) -> i32 {
+
+    let mut n: i32 = 0;
+
+    for rk in 0..RANK_SIZE {
+        for fl in 0..FILE_SIZE {
+            let sq : Square = square_make(fl, rk);
+
+            for pat in 0..4 {
+                let idx0 = sq;
+                let idx1 = sq + PATTERN[pat][0];
+                let idx2 = sq + PATTERN[pat][1];
+                let idx3 = sq + PATTERN[pat][2];
+                let idx4 = sq + PATTERN[pat][3];
+
+                let val0 = pos.state[idx0 as usize];
+                let val1 = pos.state[idx1 as usize];
+                let val2 = pos.state[idx2 as usize];
+                let val3 = pos.state[idx3 as usize];
+                let val4 = pos.state[idx4 as usize];
+
+                if val0 == sd && val1 == sd && val2 == sd && val3 == sd && val4 == Color::Empty { n += 1; }
+                if val0 == sd && val1 == sd && val2 == sd && val3 == Color::Empty && val4 == sd { n += 1; }
+                if val0 == sd && val1 == sd && val2 == Color::Empty && val3 == sd && val4 == sd { n += 1; }
+                if val0 == sd && val1 == Color::Empty && val2 == sd && val3 == sd && val4 == sd { n += 1; }
+                if val0 == Color::Empty && val1 == sd && val2 == sd && val3 == sd && val4 == sd { n += 1; }
+            }
+        }  
+    } 
+
+    n 
+}
+
+fn check_patternlive3(pos: &Pos, sd: Side) -> i32 {
+
+    let mut n: i32 = 0;
+
+    for rk in 0..RANK_SIZE {
+        for fl in 0..FILE_SIZE {
+            let sq : Square = square_make(fl, rk);
+
+            for pat in 0..4 {
+                let idx0 = sq;
+                let idx1 = sq + PATTERN[pat][0];
+                let idx2 = sq + PATTERN[pat][1];
+                let idx3 = sq + PATTERN[pat][2];
+                let idx4 = sq + PATTERN[pat][3];
+                let idx5 = sq + PATTERN[pat][4];
+
+                let val0 = pos.state[idx0 as usize];
+                let val1 = pos.state[idx1 as usize];
+                let val2 = pos.state[idx2 as usize];
+                let val3 = pos.state[idx3 as usize];
+                let val4 = pos.state[idx4 as usize];
+                let val5 = pos.state[idx5 as usize];
+
+                if val0 == Color::Empty && val1 == sd && val2 == sd && val3 == sd && val4 == Color::Empty { n +=1 ; }
+                if val0 == Color::Empty && val1 == sd && val2 == sd && val3 == Color::Empty && val4 == sd && val5 == Color::Empty { n += 1; }
+                if val0 == Color::Empty && val1 == sd && val2 == Color::Empty && val3 == sd && val4 == sd && val5 == Color::Empty { n += 1; }
+            }
+        }  
+    } 
+
+    n
+}
 
 fn main() {
-    println!("Hello, this is connect 6!");
 
-    let test_state: [Color; SQUARE_SIZE as usize] = [Color::Empty; SQUARE_SIZE as usize];
+    loop {
 
-    let mut test1 = Pos {
-        state: test_state,
-        p_turn: Color::Black,
-        p_last: square_make(5,5),
-    };
+        let start = Instant::now();
 
-    test1.init();
-    
-    pos_disp(&test1);
+        println!("Hello, this is Outer-Open Gomoku!");
+        println!("Self-playing with search depth = 4");
 
-    for i in 0..(FILE_SIZE*RANK_SIZE) {
+        let test_state: [Color; SQUARE_SIZE as usize] = [Color::Empty; SQUARE_SIZE as usize];
 
-    println!("----------------------------------------\n\n\n\n");
-    println!("MOVE {}!!!!\n\n\n\n", i);
+        let mut test1 = Pos {
+            state: test_state,
+            p_turn: Color::Black,
+        };
 
-    let d = 4;
-    let e = 4;
+        test1.init();
+        pos_disp(&test1);
 
-    let next_move: Move = search(&test1, d, e);
+        for i in 0..(FILE_SIZE*RANK_SIZE) {
 
-    println!("next move is {}", next_move);
-    println!("file is {}",  square_file(next_move));
-    println!("rank is {}",  square_rank(next_move));
+            let mut next_move: Move = square_make(1,7);
+            if i > 0 {  next_move = search(&test1, 4, 8); }
 
-    test1.do_move(next_move);
+            test1.do_move(next_move);
+            pos_disp(&test1);
 
-    pos_disp(&test1);
+            if pos_is_end(&test1) { 
+                println!("Game over!!!!!!");
+                println!("Total play {} moves.\n", i);
+                break;
+            }
+        }
 
-    if pos_is_end(&test1) { 
-        println!("Game over!!!!!!");
-        break; }
+        let duration = start.elapsed();
+
+        println!("Time for this game is: {:?}", duration);
     }
-
-
-
 }
