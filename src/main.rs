@@ -1,26 +1,24 @@
+//! <b>Outer-Open Gomoku</b> is a board game which is a enchanced version of connect5 (Gomoku).\
+//! The game is a two-player game which played on a 15x15 Go board.\
+//! Two players take turns placing a move on an empty intersection in this board.\
+//! The winner is the first player to form an unbroken chain of five moves horizontally, vertically, or diagonally.\
+//! Unlike Gomoku, the first move is required to be placed at the two outer rows or columns of this board.\
+//! This program provides an AI playing with Minimax search with alpha-beta pruning.
+
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 
 use std::cmp;
-
 use std::time::{Instant};
 
 // types
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Color {
-    Black = 0,
-    White = 1,
-    Empty = 2,
-    Border = 3,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Pat {
-    Lelfright = 0,
-    Updown = 1,
-    Leftuprightdown = 2,
-    Rightupleftdown = 3,
+    Black,
+    White,
+    Empty,
+    Border,
 }
 
 type Square = i32; 
@@ -38,6 +36,10 @@ const EVAL_INF: i32 = FILE_SIZE * RANK_SIZE * 100;
 const MOVE_NONE: Move = -1;
 const SCORE_NONE: i32 = -EVAL_INF - 1;
 
+/// PATTERN 0: left to right\
+/// PATTERN 1: top to bottom\
+/// PATTERN 2: top left to bottom right\
+/// PATTERN 3: top right to bottom left 
 const PATTERN: [[i32; 5]; 4] = [ [1, 2, 3, 4, 5],
                                  [1 * (FILE_SIZE + 1), 2 * (FILE_SIZE + 1), 3 * (FILE_SIZE + 1), 4 * (FILE_SIZE + 1), 5 * (FILE_SIZE + 1)],
                                  [1 * (FILE_SIZE + 2), 2 * (FILE_SIZE + 2), 3 * (FILE_SIZE + 2), 4 * (FILE_SIZE + 2), 5 * (FILE_SIZE + 2)],
@@ -48,6 +50,14 @@ const PATTERN: [[i32; 5]; 4] = [ [1, 2, 3, 4, 5],
 static mut ENDGAME: bool = false;
 
 // structures
+
+/// Use one-dimensional array to store the board. The position 0 is top left.\
+/// 0   1   2   3   4   5   6   7   8   9   10  11  12  13  14  <b>15</b>\
+/// 16  17  18  19  20  21  22  23  24  25  26  27  28  29  30  <b>31</b>\
+/// ... \
+/// position 15, 31, ... are Borders.\
+/// position 0 is file 0, rank 0.\
+/// position 17 is file 1, rank 1.
 
 pub struct Pos { // position
     state: [Color; SQUARE_SIZE as usize],
@@ -109,6 +119,7 @@ impl Pos {
     }
 }
 
+/// Use List to store legal moves. 
 pub struct List {  // legal move list
 
     p_move: [Move; (FILE_SIZE * RANK_SIZE) as usize],
@@ -242,6 +253,7 @@ fn gen_moves(list : &mut List, pos: &Pos) {
     }
 }
 
+/// AI: use Minimax search with alpha-beta pruning
 fn search(pos : &Pos, depth: i32, endgame: i32) -> Move {
 
     let mut new_depth = depth;
@@ -309,6 +321,7 @@ fn search_real(pos: &Pos, alpha: i32, beta: i32, depth: i32, ply: i32) -> i32 {
     if ply == 0 { bm } else { bs } //best move at the root node, best score elsewhere
 }
 
+/// Evaluation function: give different scores to different patterns.
 fn eval(pos: &Pos) -> i32 {
 
     let atk: Side = pos.turn();
@@ -336,6 +349,7 @@ fn eval(pos: &Pos) -> i32 {
     0 
 }
 
+/// Check <b>OOOOO</b>
 fn check_pattern5(pos: &Pos, sd: Side) -> bool {
 
     let mut n: i32 = 0;
@@ -344,7 +358,7 @@ fn check_pattern5(pos: &Pos, sd: Side) -> bool {
         for fl in 0..FILE_SIZE {
             let sq : Square = square_make(fl, rk);
 
-	    for pat in 0..4 {
+	    for pat in 0..4 { //4 PATTERNS
                 let idx0 = sq;
                 let idx1 = sq + PATTERN[pat][0];
                 let idx2 = sq + PATTERN[pat][1];
@@ -363,10 +377,9 @@ fn check_pattern5(pos: &Pos, sd: Side) -> bool {
     }
 
     if n > 0 { true } else { false }
-
-    //false
 }
 
+/// Check <b>-OOOO-</b>
 fn check_patternlive4(pos: &Pos, sd: Side) -> bool {
 
     let mut n: i32 = 0;
@@ -375,7 +388,7 @@ fn check_patternlive4(pos: &Pos, sd: Side) -> bool {
         for fl in 0..FILE_SIZE {
             let sq : Square = square_make(fl, rk);
 
-            for pat in 0..4 {
+            for pat in 0..4 { //4 PATTERNS
                 let idx0 = sq;
                 let idx1 = sq + PATTERN[pat][0];
                 let idx2 = sq + PATTERN[pat][1];
@@ -398,6 +411,7 @@ fn check_patternlive4(pos: &Pos, sd: Side) -> bool {
     if n > 0 { true } else { false }
 }
 
+/// Check <b>O-OOOO, OO-OOO, OOO-OO, OOOO-O, OOOO-</b>
 fn check_patterndead4(pos: &Pos, sd: Side) -> i32 {
 
     let mut n: i32 = 0;
@@ -406,7 +420,7 @@ fn check_patterndead4(pos: &Pos, sd: Side) -> i32 {
         for fl in 0..FILE_SIZE {
             let sq : Square = square_make(fl, rk);
 
-            for pat in 0..4 {
+            for pat in 0..4 { //4 PATTERNS
                 let idx0 = sq;
                 let idx1 = sq + PATTERN[pat][0];
                 let idx2 = sq + PATTERN[pat][1];
@@ -431,6 +445,7 @@ fn check_patterndead4(pos: &Pos, sd: Side) -> i32 {
     n 
 }
 
+/// Check <b>-OOO-, -O-OO-, -OO-O-</br>
 fn check_patternlive3(pos: &Pos, sd: Side) -> i32 {
 
     let mut n: i32 = 0;
@@ -439,7 +454,7 @@ fn check_patternlive3(pos: &Pos, sd: Side) -> i32 {
         for fl in 0..FILE_SIZE {
             let sq : Square = square_make(fl, rk);
 
-            for pat in 0..4 {
+            for pat in 0..4 { //4 PATTERNS
                 let idx0 = sq;
                 let idx1 = sq + PATTERN[pat][0];
                 let idx2 = sq + PATTERN[pat][1];
