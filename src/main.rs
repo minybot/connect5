@@ -36,14 +36,14 @@ const EVAL_INF: i32 = FILE_SIZE * RANK_SIZE * 100;
 const MOVE_NONE: Move = -1;
 const SCORE_NONE: i32 = -EVAL_INF - 1;
 
-/// PATTERN 0: left to right\
-/// PATTERN 1: top to bottom\
-/// PATTERN 2: top left to bottom right\
-/// PATTERN 3: top right to bottom left 
-const PATTERN: [[i32; 5]; 4] = [ [1, 2, 3, 4, 5],
-                                 [1 * (FILE_SIZE + 1), 2 * (FILE_SIZE + 1), 3 * (FILE_SIZE + 1), 4 * (FILE_SIZE + 1), 5 * (FILE_SIZE + 1)],
-                                 [1 * (FILE_SIZE + 2), 2 * (FILE_SIZE + 2), 3 * (FILE_SIZE + 2), 4 * (FILE_SIZE + 2), 5 * (FILE_SIZE + 2)],
-                                 [1 * (FILE_SIZE + 0), 2 * (FILE_SIZE + 0), 3 * (FILE_SIZE + 0), 4 * (FILE_SIZE + 0), 5 * (FILE_SIZE + 0)]];
+/// DIRECTION 0: left to right\
+/// DIRECTION 1: top to bottom\
+/// DIRECTION 2: top left to bottom right\
+/// DIRECTION 3: top right to bottom left 
+const DIRECTION: [[i32; 5]; 4] = [ [1, 2, 3, 4, 5],
+                                   [1 * (FILE_SIZE + 1), 2 * (FILE_SIZE + 1), 3 * (FILE_SIZE + 1), 4 * (FILE_SIZE + 1), 5 * (FILE_SIZE + 1)],
+                                   [1 * (FILE_SIZE + 2), 2 * (FILE_SIZE + 2), 3 * (FILE_SIZE + 2), 4 * (FILE_SIZE + 2), 5 * (FILE_SIZE + 2)],
+                                   [1 * (FILE_SIZE + 0), 2 * (FILE_SIZE + 0), 3 * (FILE_SIZE + 0), 4 * (FILE_SIZE + 0), 5 * (FILE_SIZE + 0)]];
 
 // variables
 
@@ -358,12 +358,12 @@ fn check_pattern5(pos: &Pos, sd: Side) -> bool {
         for fl in 0..FILE_SIZE {
             let sq : Square = square_make(fl, rk);
 
-	    for pat in 0..4 { //4 PATTERNS
+	    for dir in 0..4 { //4 DIRECTION
                 let idx0 = sq;
-                let idx1 = sq + PATTERN[pat][0];
-                let idx2 = sq + PATTERN[pat][1];
-                let idx3 = sq + PATTERN[pat][2];
-                let idx4 = sq + PATTERN[pat][3];
+                let idx1 = sq + DIRECTION[dir][0];
+                let idx2 = sq + DIRECTION[dir][1];
+                let idx3 = sq + DIRECTION[dir][2];
+                let idx4 = sq + DIRECTION[dir][3];
 
                 let val0 = pos.state[idx0 as usize];
                 let val1 = pos.state[idx1 as usize];
@@ -388,13 +388,13 @@ fn check_patternlive4(pos: &Pos, sd: Side) -> bool {
         for fl in 0..FILE_SIZE {
             let sq : Square = square_make(fl, rk);
 
-            for pat in 0..4 { //4 PATTERNS
+            for dir in 0..4 { //4 DIRECTION 
                 let idx0 = sq;
-                let idx1 = sq + PATTERN[pat][0];
-                let idx2 = sq + PATTERN[pat][1];
-                let idx3 = sq + PATTERN[pat][2];
-                let idx4 = sq + PATTERN[pat][3];
-                let idx5 = sq + PATTERN[pat][4];
+                let idx1 = sq + DIRECTION[dir][0];
+                let idx2 = sq + DIRECTION[dir][1];
+                let idx3 = sq + DIRECTION[dir][2];
+                let idx4 = sq + DIRECTION[dir][3];
+                let idx5 = sq + DIRECTION[dir][4];
 
                 let val0 = pos.state[idx0 as usize];
                 let val1 = pos.state[idx1 as usize];
@@ -411,7 +411,7 @@ fn check_patternlive4(pos: &Pos, sd: Side) -> bool {
     if n > 0 { true } else { false }
 }
 
-/// Check <b>O-OOOO, OO-OOO, OOO-OO, OOOO-O, OOOO-</b>
+/// Check <b>OOOO_, OOO_O, OO_OO, O_OOO, _OOOO</b>
 fn check_patterndead4(pos: &Pos, sd: Side) -> i32 {
 
     let mut n: i32 = 0;
@@ -420,12 +420,12 @@ fn check_patterndead4(pos: &Pos, sd: Side) -> i32 {
         for fl in 0..FILE_SIZE {
             let sq : Square = square_make(fl, rk);
 
-            for pat in 0..4 { //4 PATTERNS
+            for dir in 0..4 { //4 DIRECTION 
                 let idx0 = sq;
-                let idx1 = sq + PATTERN[pat][0];
-                let idx2 = sq + PATTERN[pat][1];
-                let idx3 = sq + PATTERN[pat][2];
-                let idx4 = sq + PATTERN[pat][3];
+                let idx1 = sq + DIRECTION[dir][0];
+                let idx2 = sq + DIRECTION[dir][1];
+                let idx3 = sq + DIRECTION[dir][2];
+                let idx4 = sq + DIRECTION[dir][3];
 
                 let val0 = pos.state[idx0 as usize];
                 let val1 = pos.state[idx1 as usize];
@@ -445,7 +445,7 @@ fn check_patterndead4(pos: &Pos, sd: Side) -> i32 {
     n 
 }
 
-/// Check <b>-OOO-, -O-OO-, -OO-O-</br>
+/// Check <b>-OOO-, -OO-O-, -O-OO-</br>
 fn check_patternlive3(pos: &Pos, sd: Side) -> i32 {
 
     let mut n: i32 = 0;
@@ -454,13 +454,13 @@ fn check_patternlive3(pos: &Pos, sd: Side) -> i32 {
         for fl in 0..FILE_SIZE {
             let sq : Square = square_make(fl, rk);
 
-            for pat in 0..4 { //4 PATTERNS
+            for dir in 0..4 { //4 DIRECTION
                 let idx0 = sq;
-                let idx1 = sq + PATTERN[pat][0];
-                let idx2 = sq + PATTERN[pat][1];
-                let idx3 = sq + PATTERN[pat][2];
-                let idx4 = sq + PATTERN[pat][3];
-                let idx5 = sq + PATTERN[pat][4];
+                let idx1 = sq + DIRECTION[dir][0];
+                let idx2 = sq + DIRECTION[dir][1];
+                let idx3 = sq + DIRECTION[dir][2];
+                let idx4 = sq + DIRECTION[dir][3];
+                let idx5 = sq + DIRECTION[dir][4];
 
                 let val0 = pos.state[idx0 as usize];
                 let val1 = pos.state[idx1 as usize];
